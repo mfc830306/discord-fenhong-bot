@@ -1,7 +1,10 @@
+import os
 import discord
 from discord.ext import commands
 import sqlite3
 from datetime import datetime
+from threading import Thread
+from flask import Flask
 
 
 # =========================================================
@@ -188,10 +191,6 @@ def init_db():
     conn = db_connect()
     cursor = conn.cursor()
 
-    # =====================================================
-    # 團隊
-    # =====================================================
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS teams (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,10 +199,6 @@ def init_db():
             UNIQUE(guild_id, team_name)
         )
     """)
-
-    # =====================================================
-    # 分贓紀錄
-    # =====================================================
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
@@ -233,10 +228,6 @@ def init_db():
             OR record_date = ''
     """)
 
-    # =====================================================
-    # 參加者
-    # =====================================================
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS participants (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,10 +238,6 @@ def init_db():
             UNIQUE(session_id, user_id)
         )
     """)
-
-    # =====================================================
-    # 寶物
-    # =====================================================
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS items (
@@ -312,10 +299,6 @@ def init_db():
         "REAL"
     )
 
-    # =====================================================
-    # 每件寶物分紅
-    # =====================================================
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS item_shares (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -327,10 +310,6 @@ def init_db():
             UNIQUE(item_id, user_id)
         )
     """)
-
-    # =====================================================
-    # 每件寶物領取
-    # =====================================================
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS item_receipts (
@@ -420,7 +399,6 @@ def add_team(
         )
 
         conn.commit()
-
         success = True
 
     except sqlite3.IntegrityError:
@@ -453,9 +431,7 @@ def delete_team(
         )
     )
 
-    success = (
-        cursor.rowcount > 0
-    )
+    success = cursor.rowcount > 0
 
     conn.commit()
     conn.close()
@@ -529,9 +505,7 @@ def create_record(
         )
     )
 
-    record_id = (
-        cursor.lastrowid
-    )
+    record_id = cursor.lastrowid
 
     conn.commit()
     conn.close()
@@ -743,7 +717,6 @@ def add_participant(
         )
 
         conn.commit()
-
         success = True
 
     except sqlite3.IntegrityError:
@@ -776,9 +749,7 @@ def remove_participant(
         )
     )
 
-    success = (
-        cursor.rowcount > 0
-    )
+    success = cursor.rowcount > 0
 
     conn.commit()
     conn.close()
@@ -965,9 +936,7 @@ def delete_item(
         )
     )
 
-    success = (
-        cursor.rowcount > 0
-    )
+    success = cursor.rowcount > 0
 
     conn.commit()
     conn.close()
@@ -1558,10 +1527,6 @@ def remove_participant_and_recalculate(
 
     try:
 
-        # =================================================
-        # 1. 移除參加者
-        # =================================================
-
         cursor.execute(
             """
             DELETE FROM participants
@@ -1582,10 +1547,6 @@ def remove_participant_and_recalculate(
 
             return False
 
-        # =================================================
-        # 2. 最新參加名單
-        # =================================================
-
         cursor.execute(
             """
             SELECT
@@ -1603,10 +1564,6 @@ def remove_participant_and_recalculate(
         participants = (
             cursor.fetchall()
         )
-
-        # =================================================
-        # 3. 已處理寶物
-        # =================================================
 
         cursor.execute(
             """
@@ -1635,10 +1592,6 @@ def remove_participant_and_recalculate(
         processed_items = (
             cursor.fetchall()
         )
-
-        # =================================================
-        # 4. 每件寶物重新計算
-        # =================================================
 
         for item in processed_items:
 
@@ -1756,7 +1709,6 @@ def remove_participant_and_recalculate(
                 else:
 
                     shares = []
-
                     per_person_amount = 0
 
                 cursor.execute(
@@ -1838,7 +1790,6 @@ def remove_participant_and_recalculate(
                 else:
 
                     shares = []
-
                     per_person_amount = 0
 
                 cursor.execute(
@@ -1866,7 +1817,7 @@ def remove_participant_and_recalculate(
                 continue
 
             # =================================================
-            # 5. 清除舊分紅
+            # 清除舊分紅
             # =================================================
 
             cursor.execute(
@@ -1890,7 +1841,7 @@ def remove_participant_and_recalculate(
             )
 
             # =================================================
-            # 6. 建立新分紅
+            # 建立新分紅
             # =================================================
 
             for (
@@ -1961,6 +1912,47 @@ def remove_participant_and_recalculate(
 
 
 # =========================================================
+# Render 免費 Web Service
+# =========================================================
+
+web_app = Flask(__name__)
+
+
+@web_app.route("/")
+def home():
+
+    return (
+        "柏青哥分贓助手運作中",
+        200
+    )
+
+
+@web_app.route("/health")
+def health():
+
+    return (
+        "OK",
+        200
+    )
+
+
+def run_web_server():
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
+
+    web_app.run(
+        host="0.0.0.0",
+        port=port,
+        use_reloader=False
+    )
+
+
+# =========================================================
 # BOT
 # =========================================================
 
@@ -1975,8 +1967,7 @@ bot = commands.Bot(
 
 
 # =========================================================
-# 緊湊版主卡
-# 每件寶物最下方增加分隔底線
+# 主卡
 # =========================================================
 
 def build_record_embed(
@@ -2204,7 +2195,7 @@ def build_record_embed(
             )
 
         # =================================================
-        # Discord 單一 field 最多 1024 字
+        # Discord 單一 field 上限
         # =================================================
 
         if len(item_value) <= 1024:
@@ -2234,7 +2225,9 @@ def build_record_embed(
             if second_part:
 
                 embed.add_field(
-                    name=f"{item_title}｜續",
+                    name=(
+                        f"{item_title}｜續"
+                    ),
                     value=second_part[:1024],
                     inline=False
                 )
@@ -3794,6 +3787,10 @@ async def on_ready():
         )
 
         print(
+            "Render Web Service：已啟動"
+        )
+
+        print(
             "=============================="
         )
 
@@ -3809,6 +3806,22 @@ async def on_ready():
 # 啟動
 # =========================================================
 
-init_db()
+if __name__ == "__main__":
 
-bot.run(TOKEN)
+    init_db()
+
+    if not TOKEN:
+
+        raise RuntimeError(
+            "找不到 DISCORD_TOKEN，"
+            "請確認 Render Environment Variables 已設定。"
+        )
+
+    web_thread = Thread(
+        target=run_web_server,
+        daemon=True
+    )
+
+    web_thread.start()
+
+    bot.run(TOKEN)
